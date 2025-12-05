@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-COPY . .
+COPY index.*
 
 RUN mkdir -p /app/tmp && chmod 777 /app/tmp
 
