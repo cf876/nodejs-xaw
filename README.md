@@ -26,7 +26,7 @@ Telegram交流反馈群组：https://t.me/eooceu
 * node玩具平台只需上传index.js和package.json即可，paas平台需要docker部署的才上传Dockerfile。
 * 不填写ARGO_DOMAIN和ARGO_AUTH两个变量即启用临时隧道，反之则使用固定隧道。
 * 哪吒v0/v1可选,当哪吒端口为{443,8443,2096,2087,2083,2053}其中之一时，自动开启tls。
-
+* 直连改ip地址,host,sni为hug抱脸分配的域名
 ## 📋 环境变量
 
 | 变量名 | 是否必须 | 默认值 | 说明 |
