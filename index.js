@@ -103,9 +103,9 @@ async function getWarpParamsFromMultipleSources() {
     
     if (warpData && warpData.includes('ygkkk')) {
       // 解析远程WARP参数
-      const pvk = warpData.match(/Private_key：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.pvk;
-      const wpv6 = warpData.match(/IPV6：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.wpv6;
-      const res = warpData.match(/reserved：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.res;
+      const pvk = warpData.match(/Private_key私钥：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.pvk;
+      const wpv6 = warpData.match(/IPV6地址：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.wpv6;
+      const res = warpData.match(/reserved值：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.res;
       
       console.log(`✅ 成功从 ${warpUrl} 获取WARP配置`);
       return { pvk, wpv6, res };
