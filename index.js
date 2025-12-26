@@ -10,12 +10,16 @@ const { execSync } = require('child_process');
 const http = require('http');
 const httpProxy = require('http-proxy');
 
-// ==================== WARP 配置部分（修复版） ====================
+// ==================== WARP 配置部分（增强版） ====================
 // 全局WARP配置（强制全流量走WARP）
 const warpConfig = {
   name: '',
   v46url: 'https://icanhazip.com',
-  warpUrl: 'https://ygkkk-warp.renky.eu.org',
+  // 🔥 多源WARP配置地址（增加备用地址）
+  warpUrls: [
+    'https://ygkkk-warp.renky.eu.org',
+    'http://ygkkk-warp.renky.eu.org'
+  ],
   agsbxDir: path.join(process.env.HOME || '/root', 'agsbx'),
   // WARP默认参数
   defaultWarp: {
@@ -27,6 +31,12 @@ const warpConfig = {
   warpEndpoints: {
     ipv4: '162.159.192.1',
     ipv6: '[2606:4700:d0::a29f:c001]'
+  },
+  // 🔥 网络请求配置
+  requestConfig: {
+    timeout: 10000, // 超时时间增加到10秒
+    retryTimes: 2,  // 每个地址重试次数
+    retryDelay: 1000 // 重试延迟
   }
 };
 
@@ -37,28 +47,78 @@ function ensureDir(dir) {
   }
 }
 
-// 修复：使用axios替代curl/wget，解决BusyBox兼容性问题
-async function fetchUrl(url, options = {}) {
-  try {
-    const { timeout = 5000, ipv4 = false, ipv6 = false } = options;
-    
-    // 创建axios配置
-    const axiosConfig = {
-      timeout,
-      responseType: 'text',
-      validateStatus: () => true, // 忽略HTTP状态码错误
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+// 🔥 增强版：带重试机制的URL获取函数
+async function fetchUrlWithRetry(url, options = {}) {
+  const { 
+    timeout = warpConfig.requestConfig.timeout, 
+    retryTimes = warpConfig.requestConfig.retryTimes,
+    retryDelay = warpConfig.requestConfig.retryDelay
+  } = options;
+  
+  let lastError;
+  
+  // 重试机制
+  for (let i = 0; i <= retryTimes; i++) {
+    try {
+      // 创建axios配置
+      const axiosConfig = {
+        timeout,
+        responseType: 'text',
+        validateStatus: () => true, // 忽略HTTP状态码错误
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      };
+      
+      // 发送请求
+      const response = await axios.get(url, axiosConfig);
+      const data = response.data.trim();
+      
+      if (data) {
+        console.log(`✅ 成功从 ${url} 获取数据`);
+        return data;
       }
-    };
-    
-    // 发送请求
-    const response = await axios.get(url, axiosConfig);
-    return response.data.trim();
-  } catch (err) {
-    console.log(`获取URL失败 (${url}): ${err.message.substring(0, 50)}`);
-    return '';
+    } catch (err) {
+      lastError = err;
+      if (i < retryTimes) {
+        console.log(`❌ ${url} 获取失败 (第${i+1}次)，${retryDelay}ms后重试: ${err.message.substring(0, 60)}`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
   }
+  
+  console.log(`❌ 最终获取URL失败 (${url}): ${lastError?.message.substring(0, 60) || '未知错误'}`);
+  return '';
+}
+
+// 🔥 增强版：多源获取WARP配置
+async function getWarpParamsFromMultipleSources() {
+  // 依次尝试每个WARP配置源
+  for (const warpUrl of warpConfig.warpUrls) {
+    const warpData = await fetchUrlWithRetry(warpUrl);
+    
+    if (warpData && warpData.includes('ygkkk')) {
+      // 解析远程WARP参数
+      const pvk = warpData.match(/Private_key：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.pvk;
+      const wpv6 = warpData.match(/IPV6：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.wpv6;
+      const res = warpData.match(/reserved：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.res;
+      
+      console.log(`✅ 成功从 ${warpUrl} 获取WARP配置`);
+      return { pvk, wpv6, res };
+    }
+  }
+  
+  // 所有源都失败，使用默认配置
+  console.log('⚠️ 所有WARP配置源都访问失败，使用默认配置');
+  return {
+    pvk: warpConfig.defaultWarp.pvk,
+    wpv6: warpConfig.defaultWarp.wpv6,
+    res: warpConfig.defaultWarp.res
+  };
 }
 
 // 修复：获取服务器IPv4/IPv6地址（使用axios）
@@ -67,7 +127,7 @@ async function getV4V6() {
   
   // 获取IPv4地址
   try {
-    v4 = await fetchUrl(warpConfig.v46url, { timeout: 5000 });
+    v4 = await fetchUrlWithRetry(warpConfig.v46url, { timeout: 5000, retryTimes: 1 });
     // 简单验证是否为IPv4
     if (!/^\d+\.\d+\.\d+\.\d+$/.test(v4)) {
       v4 = '';
@@ -78,7 +138,8 @@ async function getV4V6() {
   
   // 获取IPv6地址
   try {
-    v6 = await fetchUrl(warpConfig.v46url, { timeout: 5000 });
+    // 尝试专门的IPv6检测地址
+    v6 = await fetchUrlWithRetry('https://api64.ipify.org', { timeout: 5000, retryTimes: 1 });
     // 简单验证是否为IPv6
     if (!v6.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(v6)) {
       v6 = '';
@@ -90,22 +151,10 @@ async function getV4V6() {
   return { v4, v6 };
 }
 
-// 修复：获取WARP参数（使用async/await和axios）
+// 修复：获取WARP参数（使用async/await和多源获取）
 async function getWarpParams() {
-  let warpData = await fetchUrl(warpConfig.warpUrl, { timeout: 8000 });
-  let pvk, wpv6, res;
-
-  // 解析远程WARP参数，失败则用默认值
-  if (warpData && warpData.includes('ygkkk')) {
-    pvk = warpData.match(/Private_key：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.pvk;
-    wpv6 = warpData.match(/IPV6：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.wpv6;
-    res = warpData.match(/reserved：([^\n]+)/)?.[1]?.trim() || warpConfig.defaultWarp.res;
-  } else {
-    console.log('使用默认WARP配置（远程配置获取失败）');
-    pvk = warpConfig.defaultWarp.pvk;
-    wpv6 = warpConfig.defaultWarp.wpv6;
-    res = warpConfig.defaultWarp.res;
-  }
+  // 多源获取WARP参数
+  const { pvk, wpv6, res } = await getWarpParamsFromMultipleSources();
 
   // 强制所有流量走WARP
   const x1outtag = 'warp-out';
